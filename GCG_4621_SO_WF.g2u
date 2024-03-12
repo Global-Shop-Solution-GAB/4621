@@ -1,0 +1,159 @@
+Program.Sub.Preflight.Start
+Program.Sub.Preflight.End
+
+Program.Sub.Main.Start
+F.Intrinsic.Control.SetErrorHandler("Main_Err")
+F.Intrinsic.Control.ClearErrors
+V.Local.sError.Declare(String)
+V.Local.iRet.Declare(Long)
+'DRH 11-16-2017. This program will create a workflow for each new line item in a sales order. It will ask the user first if they would like to create a workFlow.
+'creates a workflow for each new line item, for the sign off and complete it adjusts the date for the next WF line
+'hook # 12231. SalesOrder > Lines
+'hook # 34700. SignOff and Complete SAVE button in workflow
+
+F.ODBC.Connection!con.OpenConnection(V.Ambient.Pdsn,V.Ambient.PUser,V.Ambient.PPass)
+F.Intrinsic.Control.If(v.Caller.Hook,=,12231)
+	'Ask the user if they want to create a workflow
+	F.Intrinsic.UI.Msgbox("Create a Workflow for this Order Line?", "Workflow", 4, V.Local.iRet)
+	F.Intrinsic.Control.If(V.Local.iRet, <>, 6)
+		F.Intrinsic.Control.CallSub(Unload)
+	F.Intrinsic.Control.EndIf
+	Function.Intrinsic.Control.CallSub(create_wf)
+Function.Intrinsic.Control.ElseIf(v.Caller.Hook,=,34700)
+	Function.Intrinsic.Control.CallSub(change_date)
+Function.Intrinsic.Control.ElseIf(v.Caller.Hook,=,14045)	
+	V.Passed.000252.Set("Workflow")
+Function.Intrinsic.Control.ElseIf(v.Caller.Hook,=,14050)	
+	V.Passed.000252.Set("Workflow")
+Function.Intrinsic.Control.ElseIf(v.Caller.Hook,=,14070)	
+	'this is the script 1 button in supply and demand
+	F.Intrinsic.Control.If(V.Passed.000003, =, "")
+		F.Intrinsic.UI.Msgbox("Choose a Part", "Workflow", 4, V.Local.iRet)
+		F.Intrinsic.Control.CallSub(Unload)
+	Function.Intrinsic.Control.EndIf
+	F.Intrinsic.UI.Msgbox("Create a Workflow for this Part?", "Workflow", 4, V.Local.iRet)
+	F.Intrinsic.Control.If(V.Local.iRet, <>, 6)
+		F.Intrinsic.Control.CallSub(Unload)
+	F.Intrinsic.Control.Else
+		Function.Intrinsic.Control.CallSub(create_wf)
+	F.Intrinsic.Control.EndIf
+Function.Intrinsic.Control.EndIf
+
+Function.Intrinsic.Control.CallSub(unload)
+
+F.Intrinsic.Control.ExitSub
+F.Intrinsic.Control.Label("Main_Err")
+F.Intrinsic.Control.If(V.Ambient.ErrorNumber,<>,0)
+	Function.Intrinsic.String.Concat("Project: GCG_4621_SO_WF.g2u",V.Ambient.Newline,V.Ambient.Newline,"Subroutine: ",V.Ambient.CurrentSubroutine,V.Ambient.NewLine,"Error Occurred ",V.Ambient.ErrorNumber," with description ",V.Ambient.ErrorDescription,V.Local.sError)
+	F.Intrinsic.UI.Msgbox(V.Local.sError)
+	Function.Intrinsic.Control.CallSub(unload)
+Function.Intrinsic.Control.EndIf
+Program.Sub.Main.End
+
+Program.Sub.Create_WF.Start
+F.Intrinsic.Control.SetErrorHandler("Create_WF_Err")
+F.Intrinsic.Control.ClearErrors
+V.Local.sError.Declare(String)
+
+V.Local..BulkDeclareString(sorderno, ssql, stitle, sPart)
+V.Local..BulkDeclareLong(iret,iwf,istatus)
+V.Local.dduedate.Declare(Date)
+
+	'set the order number
+	f.Intrinsic.String.LPad(V.Passed.000060,"0",7,v.Local.sorderno)
+	'set the due date
+	f.Intrinsic.Date.DateAdd("D",1,v.Ambient.Date,v.Local.dduedate)
+	'get the ID to create the workflow
+	f.Global.WorkFlow.GetTemplateIDFromTitle("New Sales Order",v.Local.iWF)
+	f.Intrinsic.Control.If(v.Local.iWF,=,-1)
+		'inform the user there is no template
+		f.Intrinsic.UI.Msgbox("There are no Workflow templates with the title SO Creation Workflow")
+		f.Intrinsic.Control.CallSub(unload)
+	F.Intrinsic.Control.Else
+		F.Intrinsic.Control.If(v.Caller.Hook,=,12231)
+			'get the title of the template to create the workflow
+			F.Intrinsic.String.Build("Select  STATUS  from ATG_WFT_HEADER where WFT_ID = '{0}'",v.Local.iWF.Trim,v.Local.ssql)
+			F.ODBC.Connection!con.executeandreturn(V.Local.ssql, V.Local.istatus)
+			Function.Intrinsic.String.GSSPARTSTRING(v.Passed.000052, v.Passed.000053, V.Local.sPart)
+			F.Intrinsic.String.Build("New S/O: {0}  Part: {1}", V.Local.sOrderno.Trim,  V.Local.sPart, V.Local.sTitle)
+		F.Intrinsic.Control.ElseIf(v.Caller.Hook,=,14070)
+			V.Local.sPart.Set(V.Passed.000003)
+			F.Intrinsic.String.Build("Select  STATUS  from ATG_WFT_HEADER where WFT_ID = '{0}'",v.Local.iWF.Trim,v.Local.ssql)
+			F.ODBC.Connection!con.executeandreturn(V.Local.ssql, V.Local.istatus)
+			F.Intrinsic.String.Build("New Contract Review Part: {0}",  V.Local.sPart, V.Local.sTitle)
+		F.Intrinsic.Control.EndIf
+	F.Intrinsic.Control.EndIf	
+	
+	'create the workflow from the template
+	f.Global.WorkFlow.CreateFromTemplate(v.Local.iWF.Trim,v.Local.sTitle.trim,V.Ambient.Date,V.Local.dduedate,V.Caller.User,v.Local.istatus.Long,v.Local.iret)
+
+F.Intrinsic.Control.ExitSub
+F.Intrinsic.Control.Label("Create_WF_Err")
+F.Intrinsic.Control.If(V.Ambient.ErrorNumber,<>,0)
+	Function.Intrinsic.String.Concat("Project: GCG_4621_SO_WF.g2u",V.Ambient.Newline,V.Ambient.Newline,"Subroutine: ",V.Ambient.CurrentSubroutine,V.Ambient.NewLine,"Error Occurred ",V.Ambient.ErrorNumber," with description ",V.Ambient.ErrorDescription,V.Local.sError)
+	F.Intrinsic.UI.Msgbox(V.Local.sError)
+	Function.Intrinsic.Control.CallSub(unload)
+Function.Intrinsic.Control.EndIf
+Program.Sub.Create_WF.End
+
+Program.Sub.Change_Date.Start
+F.Intrinsic.Control.SetErrorHandler("Change_Date_Err")
+F.Intrinsic.Control.ClearErrors
+V.Local.sError.Declare(String)
+
+'V.Passed.WFID
+'V.Passed.WFLINE
+
+V.Local..BulkDeclareString(ssql, sRet)
+V.Local.dduedate.Declare(Date)
+
+F.Intrinsic.String.Build("Select PRIORITY, SignedOff_Date, Completion_Date From ATG_WF_LINES Where LINE = '{0}' And WF_ID = '{1}'", V.Passed.WFLINE, V.Passed.WFID, V.Local.ssql)
+
+F.ODBC.Connection!con.ExecuteAndReturn(V.Local.ssql, V.Local.sRet)
+F.Intrinsic.String.Split(V.Local.sRet, "*!*", V.Local.sRet)
+
+Function.Intrinsic.Control.If(V.Local.sRet(1), =, "", "And", V.Local.sRet(2), =, "")
+	Function.Intrinsic.Control.CallSub(unload)
+Function.Intrinsic.Control.EndIf
+
+F.Intrinsic.Date.DateAdd("D",1,V.Ambient.Date,V.Local.dduedate)
+
+F.Intrinsic.String.Build("Select WF_ID, LINE, START_DATE, DUE_DATE, PRIORITY From ATG_WF_LINES Where WF_ID = '{0}' And PRIORITY > '{1}'", V.Passed.WFID, V.Local.sRet(0), V.Local.ssql)
+F.Data.DataTable.CreateFromSQL("D", "con", V.Local.ssql)
+
+F.Data.DataTable.SetValue("D", -1, "START_DATE", V.Ambient.Date)
+F.Data.DataTable.SetValue("D", -1, "DUE_DATE", V.Local.dduedate)
+
+Function.Data.DataTable.SaveToDB("D", "con", "ATG_WF_LINES", "LINE*!*WF_ID", 256, "LINE@!@LINE*!*WF_ID@!@WF_ID*!*START_DATE@!@START_DATE*!*DUE_DATE@!@DUE_DATE")
+
+F.Intrinsic.Control.ExitSub
+F.Intrinsic.Control.Label("Change_Date_Err")
+F.Intrinsic.Control.If(V.Ambient.ErrorNumber,<>,0)
+	Function.Intrinsic.String.Concat("Project: GCG_4621_SO_WF.g2u",V.Ambient.Newline,V.Ambient.Newline,"Subroutine: ",V.Ambient.CurrentSubroutine,V.Ambient.NewLine,"Error Occurred ",V.Ambient.ErrorNumber," with description ",V.Ambient.ErrorDescription,V.Local.sError)
+	F.Intrinsic.UI.Msgbox(V.Local.sError)
+	Function.Intrinsic.Control.CallSub(unload)
+Function.Intrinsic.Control.EndIf
+Program.Sub.Change_Date.End
+
+Program.Sub.Unload.Start
+F.Intrinsic.Control.SetErrorHandler("Unload_Err")
+F.Intrinsic.Control.ClearErrors
+V.Local.sError.Declare(String)
+
+F.ODBC.Connection!con.Close
+F.Intrinsic.Control.End
+
+F.Intrinsic.Control.ExitSub
+F.Intrinsic.Control.Label("Unload_Err")
+F.Intrinsic.Control.If(V.Ambient.ErrorNumber,<>,0)
+	Function.Intrinsic.String.Concat("Project: GCG_4621_SO_WF.g2u",V.Ambient.Newline,V.Ambient.Newline,"Subroutine: ",V.Ambient.CurrentSubroutine,V.Ambient.NewLine,"Error Occurred ",V.Ambient.ErrorNumber," with description ",V.Ambient.ErrorDescription,V.Local.sError)
+	F.Intrinsic.UI.Msgbox(V.Local.sError)
+	Function.Intrinsic.Control.End
+
+Function.Intrinsic.Control.EndIf
+Program.Sub.Unload.End
+
+Program.Sub.Comments.Start
+${$0$}$$}$DH1$}$11/16/2017 11:12:10 AM$}$False
+${$3$}$0$}$$}$0$}$-1$}$$}$12:00:00 AM$}$This will be a modification to ARC 957so that the Workflow can be triggered by a new Sales Order Line.
+Program.Sub.Comments.End
